@@ -52,7 +52,10 @@ app.get('/connect', auth, (req, res) => {
     client.emit('connected', { user: req.user });
     console.log(client.user.username + ' has connected!');
 
-    req.on('close', () => {
+    // req.on('close', () => {
+    //     disconnected(client);
+    // });
+    res.socket.on('end', () => {
         disconnected(client);
     });
 });
