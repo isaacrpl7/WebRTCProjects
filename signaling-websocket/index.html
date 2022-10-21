@@ -1,0 +1,206 @@
+<!DOCTYPE html>
+<html>
+
+<head>
+    <title>WebRTC client</title>
+</head>
+
+<body>
+    <div class="spacer app">
+        <canvas></canvas>
+    </div>
+    <ul id="messages"></ul>
+    <input id="message" type="text"/>
+    <button id="sendMessage" onclick="sendMessage()">Send</button>
+
+
+    <script src="https://unpkg.com/simple-peer@9.7.2/simplepeer.min.js"></script>
+    <script>
+        const wsConnection = new WebSocket('ws:127.0.0.1:2013', 'json');
+        let serverIds = []
+        let localId = '';
+        let peerConnections = {}
+        let initiator = false;
+
+        wsConnection.onopen = (e) => {
+            console.log(`wsConnection open to 127.0.0.1:2013`, e);
+        };
+
+        wsConnection.onerror = (e) => {
+            console.error(`wsConnection error `, e);
+        };
+
+        wsConnection.onmessage = (e) => {
+            const message = JSON.parse(e.data);
+            switch(message.type) {
+                case('connection'):
+                    console.log(`You joined as user ${message.id}`);
+                    wsConnection.send(JSON.stringify({type: 'message', msg: `User ${message.id} has joined!`}));
+                    localId = message.id;
+                    break;
+                case('ids'):
+                    // You will receive this if a new peer connects or disconnects
+                    // Then you have to call connect
+                    serverIds = message.ids;
+                    connect();
+                    break;
+                case('signal'):
+                    // When I receive the signal from the websocket by the server, check if I have already made the connection and created the peer
+                    // Then send the signal directly to the peer
+                    signal(message.id, message.data);
+                    break;
+                case('message'):
+                    console.log(message.msg);
+                    break;
+            }
+        };
+
+        function connect() {
+            // If a peer connection from array is not in the hashmap, delete it
+            Object.keys(peerConnections).forEach(id => {
+                if (!serverIds.includes(id)) {
+                    peerConnections[id].destroy();
+                    delete peerConnections[id];
+                }
+            });
+            // check if you are the initiator
+            if(serverIds.length === 1) {
+                initiator = true;
+            }
+            // create a peer for each connection id that is not me
+            serverIds.forEach(id => {
+                if (id === localId || peerConnections[id]) { // if I'm the peer, or the peer has already been created, cancel operation
+                    return;
+                }
+
+                let peer = new SimplePeer({
+                    initiator: initiator
+                });
+                peer.on('error', console.error);
+
+                // When the peer has signaling data, send it alongside my id through the websocket (server) using type: signal
+                // The websocket on the server will send this signal containing my id to every peer that is not me
+                peer.on('signal', data => {
+                    wsConnection.send(JSON.stringify({
+                        type: 'signal',
+                        id: localId,
+                        data
+                    }));
+                });
+                peer.on('data', (data) => onPeerData(id, data));
+
+                // At last, add the connection to the hashmap
+                peerConnections[id] = peer;
+            });
+        }
+
+        function signal(id, data) {
+            // If I have already made a connection and created the peer, send the signal to it using the data passed
+            if (peerConnections[id]) {
+                peerConnections[id].signal(data);
+            }
+        }
+
+        function onPeerData(id, data) {
+            const peerData = JSON.parse(data.toString())
+            if(peerData.type === 'message') {
+                let li = document.createElement("li")
+                li.innerHTML = id+": "+peerData.data
+                document.getElementById('messages').append(li);
+            }
+
+            if(peerData.type === 'drawing') {
+                drawLine(peerData.data);
+            }
+        }
+
+        function broadcast(data) {
+            Object.values(peerConnections).forEach(peer => {
+                peer.send(data);
+            });
+        }
+
+        function sendMessage() {
+            const input = document.getElementById("message");
+            console.log(input.value);
+            let li = document.createElement("li")
+            li.innerHTML = "Eu: "+input.value
+            document.getElementById('messages').append(li);
+            broadcast(JSON.stringify({type: 'message', data: input.value}));
+            input.value = '';
+        }
+
+        // DRAWING CODE
+        const canvas = document.querySelector('canvas');
+        const context = canvas.getContext('2d');
+
+        var nodes = [];
+
+        function resize() {
+            canvas.width = window.innerWidth/2;
+            canvas.height = window.innerHeight/2;
+            draw();
+        }
+
+        function draw() {
+            context.clearRect(0, 0, canvas.width, canvas.height);
+        }
+
+        window.onresize = resize;
+        resize();
+        let lastPoint;
+        function drawLine(position) {
+            context.beginPath();
+            context.moveTo(position.lastPoint.x, position.lastPoint.y);
+            context.lineTo(position.offsetX, position.offsetY);
+            context.strokeStyle = position.color;
+            context.lineWidth = 5;
+            context.lineCap = 'round';
+            context.stroke();
+        }
+        function move(e) {
+            if (e.buttons) {
+                if (!lastPoint) {
+                    lastPoint = { x: e.offsetX, y: e.offsetY };
+                    return;
+                }
+                drawLine({
+                    lastPoint: { ...lastPoint },
+                    offsetX: e.offsetX,
+                    offsetY: e.offsetY,
+                    color: color
+                });
+                broadcast(JSON.stringify({type: 'drawing', data: {
+                    lastPoint: { ...lastPoint },
+                    offsetX: e.offsetX,
+                    offsetY: e.offsetY,
+                    color: color
+                }}));
+                
+                lastPoint = { x: e.offsetX, y: e.offsetY };
+            }
+        }
+        function attPoint(e) {
+            lastPoint = { x: e.offsetX, y: e.offsetY };
+        }
+        function key(e) {
+            if (e.key === 'Backspace') {
+                context.clearRect(0, 0, canvas.width, canvas.height);
+            }
+        }
+        function randomColor() {
+            let r = Math.random() * 255;
+            let g = Math.random() * 255;
+            let b = Math.random() * 255;
+            return `rgb(${r}, ${g}, ${b})`;
+        }
+
+        var color = randomColor();
+
+        window.onkeydown = key;
+        window.onmousemove = move;
+        window.onmousedown = attPoint;
+    </script>
+</body>
+
+</html>
