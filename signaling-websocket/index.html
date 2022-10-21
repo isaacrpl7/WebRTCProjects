@@ -16,7 +16,8 @@
 
     <script src="https://unpkg.com/simple-peer@9.7.2/simplepeer.min.js"></script>
     <script>
-        const wsConnection = new WebSocket(`ws:${window.location.href.split('//')[1]}`, 'json');
+        const url = window.location.href.split('//');
+        const wsConnection = new WebSocket(`${url[0] === 'https:' ? 'wss' : 'ws'}:${url[1]}`, 'json');
         let serverIds = []
         let localId = '';
         let peerConnections = {}
