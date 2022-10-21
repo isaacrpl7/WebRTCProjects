@@ -1,6 +1,6 @@
 const { WebSocketServer, WebSocket } = require('ws');
 const {v4: uuidv4} = require('uuid');
-const path = require('node:path');
+const path = require('path');
 const express = require('express');
 const app = express();
 
