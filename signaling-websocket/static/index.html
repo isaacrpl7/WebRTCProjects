@@ -1,0 +1,279 @@
+<!DOCTYPE html>
+<html>
+
+<head>
+    <title>WebRTC client</title>
+</head>
+
+<body>
+    <div class="spacer app">
+        <canvas></canvas>
+    </div>
+    <ul id="messages"></ul>
+    <input id="message" type="text"/>
+    <button id="sendMessage" onclick="sendMessage()">Send</button>
+
+    <script>
+        function logMessage(message, color) {
+            let li = document.createElement("li");
+            li.style.color = color;
+            li.innerHTML = "From server: "+message;
+            document.getElementById('messages').append(li);
+        }
+            
+        function sendMessage() {
+            const input = document.getElementById("message");
+            let li = document.createElement("li");
+            li.innerHTML = "Eu: "+input.value;
+            document.getElementById('messages').append(li);
+            broadcast(JSON.stringify({type: 'message', data: input.value, username: context.username}));
+            input.value = '';
+        }
+                
+        function onPeerData(id, data) {
+            const peerData = JSON.parse(data.toString())
+            if(peerData.type === 'message') {
+                let li = document.createElement("li")
+                li.innerHTML = peerData.username+": "+peerData.data
+                document.getElementById('messages').append(li);
+            }
+
+            if(peerData.type === 'drawing') {
+                drawLine(peerData.data);
+            }
+        }
+
+        // // DRAWING CODE
+        const canvas = document.querySelector('canvas');
+        const canvasContext = canvas.getContext('2d');
+
+        var nodes = [];
+
+        function resize() {
+            canvas.width = window.innerWidth/2;
+            canvas.height = window.innerHeight/2;
+            draw();
+        }
+
+        function draw() {
+            canvasContext.clearRect(0, 0, canvas.width, canvas.height);
+        }
+
+        window.onresize = resize;
+        resize();
+        let lastPoint;
+        function drawLine(position) {
+            canvasContext.beginPath();
+            canvasContext.moveTo(position.lastPoint.x, position.lastPoint.y);
+            canvasContext.lineTo(position.offsetX, position.offsetY);
+            canvasContext.strokeStyle = position.color;
+            canvasContext.lineWidth = 5;
+            canvasContext.lineCap = 'round';
+            canvasContext.stroke();
+        }
+        function move(e) {
+            if (e.buttons) {
+                if (!lastPoint) {
+                    lastPoint = { x: e.offsetX, y: e.offsetY };
+                    return;
+                }
+                drawLine({
+                    lastPoint: { ...lastPoint },
+                    offsetX: e.offsetX,
+                    offsetY: e.offsetY,
+                    color: color
+                });
+                broadcast(JSON.stringify({type: 'drawing', data: {
+                    lastPoint: { ...lastPoint },
+                    offsetX: e.offsetX,
+                    offsetY: e.offsetY,
+                    color: color
+                }}));
+                
+                lastPoint = { x: e.offsetX, y: e.offsetY };
+            }
+        }
+        function attPoint(e) {
+            lastPoint = { x: e.offsetX, y: e.offsetY };
+        }
+        function key(e) {
+            if (e.key === 'Backspace') {
+                canvasContext.clearRect(0, 0, canvas.width, canvas.height);
+            }
+        }
+        function randomColor() {
+            let r = Math.random() * 255;
+            let g = Math.random() * 255;
+            let b = Math.random() * 255;
+            return `rgb(${r}, ${g}, ${b})`;
+        }
+
+        var color = randomColor();
+
+        window.onkeydown = key;
+        window.onmousemove = move;
+        window.onmousedown = attPoint;
+
+        // globally saving the context with user, roomid, token and eventSource
+        var context = {
+            username: 'user' + parseInt(Math.random() * 100000),
+            roomId: window.location.pathname.substr(1),
+            token: null,
+            eventSource: null,
+            peers: {},
+            channels: {},
+        };
+        const url = window.location.href.split('//');
+
+        // register and get the token adding it to context
+        async function getToken() {
+            let res = await fetch('/access', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json'
+                },
+                body: JSON.stringify({
+                    username: context.username
+                })
+            });
+            let token = await res.json();
+            context.token = token;
+        }
+
+        // joining room in the server (this is used when server send the connected event)
+        async function join() {
+            return fetch(`/${context.roomId}/join`, {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                    'Authorization': `Bearer ${context.token}`
+                }
+            });
+        }
+
+        // creating the EventSource to receive events from server
+        async function connect() {
+            await getToken();
+            context.eventSource = new EventSource(`/connect?token=${context.token}`);
+            context.eventSource.addEventListener('add-peer', addPeer, false);
+            context.eventSource.addEventListener('remove-peer', removePeer, false);
+            context.eventSource.addEventListener('session-description', sessionDescription, false);
+            context.eventSource.addEventListener('ice-candidate', iceCandidate, false);
+            context.eventSource.addEventListener('connected', () => {
+                join();
+                logMessage(`Bem-vindo, ${context.username}`, 'green');
+            });
+        }
+
+        // Choosing the STUN servers
+        const rtcConfig = {
+            iceServers: [{
+                urls: [
+                    'stun:stun.l.google.com:19302',
+                    'stun:global.stun.twilio.com:3478'
+                ]
+            }]
+        };
+
+        function addPeer(data) {
+            const {peer: peerToAdd, roomId, offer} = JSON.parse(data.data);
+
+            // if incoming peer is already in context, cancel the operation
+            if (context.peers[peerToAdd]) {
+                return;
+            }
+
+            // setup peer connection
+            let peer = new RTCPeerConnection(rtcConfig);
+            context.peers[peerToAdd.id] = peer;
+
+            // handle ice candidate
+            peer.onicecandidate = function (event) {
+                if (event.candidate) {
+                    relay(peerToAdd.id, 'ice-candidate', event.candidate);
+                }
+            };
+
+            // generate offer if required (on join, a peer will create an offer
+            // to every other peer in the network, thus forming a mesh)
+            if (offer) {
+                // create the data channel, map peer updates
+                let channel = peer.createDataChannel('updates');
+                channel.onmessage = function (event) {
+                    onPeerData(peerToAdd.id, event.data);
+                };
+                context.channels[peerToAdd.id] = channel;
+                createOfferAndSetLocalDescription(peerToAdd.id, peer);
+            } else {
+                logMessage(`${peerToAdd.username} entrou na sala!`, 'green');
+                peer.ondatachannel = function (event) {
+                    context.channels[peerToAdd.id] = event.channel;
+                    event.channel.onmessage = function (evt) {
+                        onPeerData(peerToAdd.id, evt.data);
+                    };
+                };
+            }
+        }
+
+        async function createOfferAndSetLocalDescription(peerId, peer) {
+            let offer = await peer.createOffer();
+            await peer.setLocalDescription(offer);
+            // relay the offer to the peer
+            await relay(peerId, 'session-description', offer);
+        }
+
+        // peerId: peer target, send info to server, and server send to peer
+        async function relay(peerId, event, data) {
+            await fetch(`/relay/${peerId}/${event}`, {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                    'Authorization': `Bearer ${context.token}`
+                },
+                body: JSON.stringify(data)
+            });
+        }
+
+        function removePeer(data) {
+            let message = JSON.parse(data.data);
+            if (context.peers[message.peer.id]) {
+                context.peers[message.peer.id].close();
+            }
+            delete context.channels[message.peer.id]
+            delete context.peers[message.peer.id];
+            logMessage(`${message.peer.username} saiu da sala!`, 'red');
+        }
+
+        // Will run when I receive the session-description event
+        async function sessionDescription(data) {
+            let message = JSON.parse(data.data);
+            let peer = context.peers[message.peer.id]; // get the peer related to this id stored on context
+
+            let remoteDescription = new RTCSessionDescription(message.data);// Use the offer to create the session description
+            await peer.setRemoteDescription(remoteDescription);// set the remote description
+
+            // if the peer is receiving an offer, it will generate the answer and relay to the other peer throught the server
+            if (remoteDescription.type === 'offer') {
+                let answer = await peer.createAnswer();
+                await peer.setLocalDescription(answer);
+                await relay(message.peer.id, 'session-description', answer);
+            }
+        }
+
+        function iceCandidate(data) {
+            let message = JSON.parse(data.data);
+            let peer = context.peers[message.peer.id];
+            peer.addIceCandidate(new RTCIceCandidate(message.data));
+        }
+
+        function broadcast(data) {
+            for (let channelId in context.channels) {
+                context.channels[channelId].send(data);
+            }
+        }
+
+        connect();
+    </script>
+</body>
+
+</html>
