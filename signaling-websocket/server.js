@@ -48,7 +48,7 @@ app.get('/connect', auth, (req, res) => {
 
     clients[client.id] = client;
 
-    // emit the connected state
+    // emit the connected state 
     client.emit('connected', { user: req.user });
     console.log(client.user.username + ' has connected!');
 
