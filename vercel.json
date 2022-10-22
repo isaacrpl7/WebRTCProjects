@@ -1,0 +1,10 @@
+{
+    "version": 1,
+    "name": "webrtc-drawing",
+    "builds": [
+        { "src": "/signaling-websocket/server.js", "use": "@vercel/node" }
+    ],
+    "routes": [
+        { "src": "/(.*)", "dest": "/app.js" }
+    ]
+}
