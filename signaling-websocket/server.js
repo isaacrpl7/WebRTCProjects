@@ -7,7 +7,7 @@ var dotenv = require('dotenv');
 
 dotenv.config();
 
-const PORT = process.env.PORT || 2013;
+const PORT = process.env.PORT || 3000;
 
 app.use('/static', express.static(`${__dirname}/static`));
 app.use(express.json())
