@@ -4,8 +4,8 @@
   "description": "",
   "main": "index.js",
   "scripts": {
-    "websocketserver": "nodemon ./signaling-websocket/server.js",
-    "start:dev": "nodemon ./signaling-websocket/server.js",
+    "sseserver": "nodemon ./signaling-sse/server.js",
+    "start:dev": "nodemon ./signaling-sse/server.js",
     "socketioserver": "nodemon ./signaling-socketio/server.js",
     "test": "echo \"Error: no test specified\" && exit 1"
   },
