@@ -8,10 +8,10 @@ FROM base as production
 ENV NODE_ENV=production
 RUN npm ci
 COPY . /
-CMD ["node", "signaling-sse/server.js"]
+CMD ["node", "signaling-websockets/server.js"]
 
 FROM base as dev
 ENV NODE_ENV=development
 RUN npm install -g nodemon && npm install
 COPY . /
-CMD ["nodemon", "signaling-sse/server.js"]
+CMD ["nodemon", "signaling-websockets/server.js"]
