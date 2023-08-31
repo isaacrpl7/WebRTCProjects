@@ -3,6 +3,7 @@ const path = require('path');
 const express = require('express');
 const app = express();
 var jwt = require('jsonwebtoken');
+const cors = require('cors');
 require('dotenv').config({path:__dirname+'/../.env'});
 const { WebSocketServer, WebSocket } = require('ws');
 
@@ -10,6 +11,7 @@ const PORT = process.env.PORT || 3000;
 
 app.use('/static', express.static(`${__dirname}/static`));
 app.use(express.json())
+app.use(cors());
 
 const {createServer} = require('http');
 const server = createServer(app);
@@ -65,18 +67,30 @@ function disconnected(client) {
     }
 }
 
-app.get('/', (req, res) => {
-    res.sendFile(path.join(__dirname, 'static/rooms.html'));
-});
-
 app.get('/rooms', (req, res) => {
-    res.send(roomsName);
+    const namesOfRooms = Object.keys(roomsName);
+    const roomsArray = []
+    namesOfRooms.forEach((name) => {
+        const id = roomsName[name];
+        const players = Object.keys(rooms[id]).length;
+        roomsArray.push({
+            name,
+            id,
+            players
+        });
+    });
+    res.send(roomsArray);
 });
 
 app.get('/createRoom', (req, res) => {
     const { roomName } = req.query;
     console.log(`Criando sala ${roomName}`);
-    const roomId = uuidv4();
+    const chars = 'abcdefghijklmnopqrstuvwxyz';
+    let roomId = '';
+    for (let i = 0; i < 9; i++) {
+        roomId += chars.charAt(Math.floor(Math.random() * chars.length));
+        if(i === 2 || i === 5) roomId += '-';
+    }
 
     if(!roomsName[roomName])
         roomsName[roomName] = roomId;
@@ -85,7 +99,7 @@ app.get('/createRoom', (req, res) => {
         rooms[roomId] = {};
         console.log(roomId + ' room added to rooms keys');
     }
-    res.redirect('/'+roomId);
+    res.status(200).send({msg: 'Sala criada', roomId});
 });
 
 // store the connections from clients here
@@ -97,7 +111,7 @@ app.get('/:roomId', (req, res) => {
     if (!rooms[roomId]) {
         return res.sendStatus(404);
     }
-    res.sendFile(path.join(__dirname, 'static/index.html'));
+    res.sendStatus(200);
 });
 
 

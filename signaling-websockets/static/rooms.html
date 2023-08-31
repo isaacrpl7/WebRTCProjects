@@ -1,0 +1,46 @@
+<!DOCTYPE html>
+<html>
+    <head>
+        <title>Rooms!</title>
+    </head>
+
+    <body>
+        <div class="modal">
+            <h2>Crie uma sala!</h2>
+            <input onkeypress="typing()" onkeyup="typing()" type="text" id="roomName">
+            <a id="linkToRoom" href="">Criar</a>
+        </div>
+        <div>
+            <h2>Salas ativas:</h2>
+            <div id="rooms">
+
+            </div>
+        </div>
+        <script>
+            const getRooms = async () => {
+                const res = await fetch('/rooms');
+                const rooms = await res.json();
+                console.log(rooms);
+                Object.keys(rooms).forEach(roomName => {
+                    const roomdiv = document.createElement('div');
+                    const roomLink = document.createElement('p');
+                    const name = document.createElement('a');
+                    roomLink.innerHTML = rooms[roomName];
+                    name.innerHTML = roomName;
+                    roomdiv.style.display = 'flex';
+                    roomdiv.appendChild(name);
+                    roomdiv.appendChild(roomLink);
+
+                    document.getElementById('rooms').appendChild(roomdiv);
+                });
+            }
+
+            const typing = () => {
+                const link = document.getElementById('linkToRoom');
+                const value = document.getElementById('roomName').value;
+                link.href = `/createRoom?roomName=${value}`;
+            }
+            getRooms();
+        </script>
+    </body>
+</html>
